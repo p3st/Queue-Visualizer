@@ -1,0 +1,4 @@
+id,name,priority,productType
+WO-001,Work Order 001,High,ProductA
+WO-002,Work Order 002,Medium,ProductB
+WO-003,Work Order 003,Low,ProductC

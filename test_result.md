@@ -101,3 +101,100 @@
 #====================================================================================================
 # Testing Data - Main Agent and testing sub agent both should log testing data below this section
 #====================================================================================================
+
+user_problem_statement: "Please test the CSV upload functionality in the Production Queue Dashboard."
+
+frontend:
+  - task: "CSV Upload Button Test"
+    implemented: true
+    working: "NA"
+    file: "/app/frontend/src/App.js"
+    stuck_count: 0
+    priority: "high"
+    needs_retesting: true
+    status_history:
+      - working: "NA"
+        agent: "testing"
+        comment: "Initial setup for testing CSV upload button functionality."
+
+  - task: "Sample CSV Download Test"
+    implemented: true
+    working: "NA"
+    file: "/app/frontend/src/App.js"
+    stuck_count: 0
+    priority: "high"
+    needs_retesting: true
+    status_history:
+      - working: "NA"
+        agent: "testing"
+        comment: "Initial setup for testing sample CSV download functionality."
+
+  - task: "CSV Upload and Parsing Test"
+    implemented: true
+    working: "NA"
+    file: "/app/frontend/src/App.js"
+    stuck_count: 0
+    priority: "high"
+    needs_retesting: true
+    status_history:
+      - working: "NA"
+        agent: "testing"
+        comment: "Initial setup for testing CSV upload and parsing functionality."
+
+  - task: "Data Integration Test"
+    implemented: true
+    working: "NA"
+    file: "/app/frontend/src/App.js"
+    stuck_count: 0
+    priority: "high"
+    needs_retesting: true
+    status_history:
+      - working: "NA"
+        agent: "testing"
+        comment: "Initial setup for testing data integration functionality."
+
+  - task: "Visual Update Test"
+    implemented: true
+    working: "NA"
+    file: "/app/frontend/src/App.js"
+    stuck_count: 0
+    priority: "medium"
+    needs_retesting: true
+    status_history:
+      - working: "NA"
+        agent: "testing"
+        comment: "Initial setup for testing visual updates after CSV upload."
+
+  - task: "Error Handling Test"
+    implemented: true
+    working: "NA"
+    file: "/app/frontend/src/App.js"
+    stuck_count: 0
+    priority: "medium"
+    needs_retesting: true
+    status_history:
+      - working: "NA"
+        agent: "testing"
+        comment: "Initial setup for testing error handling for CSV upload."
+
+metadata:
+  created_by: "testing_agent"
+  version: "1.0"
+  test_sequence: 0
+  run_ui: true
+
+test_plan:
+  current_focus:
+    - "CSV Upload Button Test"
+    - "Sample CSV Download Test"
+    - "CSV Upload and Parsing Test"
+    - "Data Integration Test"
+    - "Visual Update Test"
+    - "Error Handling Test"
+  stuck_tasks: []
+  test_all: true
+  test_priority: "sequential"
+
+agent_communication:
+  - agent: "testing"
+    message: "Initialized testing structure for CSV upload functionality in the Production Queue Dashboard. Will proceed with testing all aspects of the CSV upload feature."

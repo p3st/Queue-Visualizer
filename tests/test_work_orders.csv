@@ -1,0 +1,5 @@
+id,name,priority,productType
+WO-TEST-001,Test Order 001,High,ProductA
+WO-TEST-002,Test Order 002,Medium,ProductB
+WO-TEST-003,Test Order 003,Low,ProductC
+WO-TEST-004,Test Order 004,High,ProductD

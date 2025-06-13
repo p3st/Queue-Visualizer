@@ -8,6 +8,9 @@ const App = () => {
   const [isLoading, setIsLoading] = useState(true);
   const [lastRefresh, setLastRefresh] = useState(new Date());
   const [error, setError] = useState(null);
+  const [draggedOrder, setDraggedOrder] = useState(null);
+  const [dragOverIndex, setDragOverIndex] = useState(null);
+  const [isDragging, setIsDragging] = useState(false);
 
   const BACKEND_URL = process.env.REACT_APP_BACKEND_URL || 'http://localhost:8000';
 
@@ -91,6 +94,63 @@ const App = () => {
     }
   };
 
+  const sortByPriority = async () => {
+    try {
+      setIsLoading(true);
+      setError(null);
+      
+      const response = await fetch(`${BACKEND_URL}/api/work-orders/priority-sort`, {
+        method: 'POST'
+      });
+      
+      if (!response.ok) {
+        throw new Error(`HTTP error! status: ${response.status}`);
+      }
+      
+      const data = await response.json();
+      const processedOrders = calculateQueueTimes(data.work_orders);
+      setWorkOrders(processedOrders);
+      setLastRefresh(new Date());
+    } catch (err) {
+      console.error('Error sorting by priority:', err);
+      setError('Failed to sort by priority');
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  const reorderWorkOrders = async (newOrder) => {
+    try {
+      const reorderData = {
+        work_orders: newOrder.map((order, index) => ({
+          id: order.id,
+          position: index + 1
+        }))
+      };
+
+      const response = await fetch(`${BACKEND_URL}/api/work-orders/reorder`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify(reorderData)
+      });
+
+      if (!response.ok) {
+        throw new Error(`HTTP error! status: ${response.status}`);
+      }
+
+      const data = await response.json();
+      const processedOrders = calculateQueueTimes(data.work_orders);
+      setWorkOrders(processedOrders);
+    } catch (err) {
+      console.error('Error reordering work orders:', err);
+      setError('Failed to reorder work orders');
+      // Reload original order on error
+      loadWorkOrders();
+    }
+  };
+
   const calculateQueueTimes = (orders) => {
     let cumulativeTime = new Date();
     
@@ -107,9 +167,62 @@ const App = () => {
         startTime,
         endTime,
         status: index === 0 ? 'In Progress' : 'Queued',
-        position: index + 1
+        queuePosition: index + 1
       };
     });
+  };
+
+  // Drag and Drop Handlers
+  const handleDragStart = (e, order, index) => {
+    setDraggedOrder({ order, index });
+    setIsDragging(true);
+    e.dataTransfer.effectAllowed = 'move';
+    e.dataTransfer.setData('text/html', e.target.parentNode);
+    e.target.style.opacity = '0.5';
+  };
+
+  const handleDragEnd = (e) => {
+    e.target.style.opacity = '1';
+    setDraggedOrder(null);
+    setDragOverIndex(null);
+    setIsDragging(false);
+  };
+
+  const handleDragOver = (e, index) => {
+    e.preventDefault();
+    e.dataTransfer.dropEffect = 'move';
+    setDragOverIndex(index);
+  };
+
+  const handleDragLeave = () => {
+    setDragOverIndex(null);
+  };
+
+  const handleDrop = (e, dropIndex) => {
+    e.preventDefault();
+    
+    if (!draggedOrder || draggedOrder.index === dropIndex) {
+      setDragOverIndex(null);
+      return;
+    }
+
+    const newWorkOrders = [...workOrders];
+    const draggedItem = newWorkOrders[draggedOrder.index];
+    
+    // Remove the dragged item
+    newWorkOrders.splice(draggedOrder.index, 1);
+    
+    // Insert at new position
+    newWorkOrders.splice(dropIndex, 0, draggedItem);
+    
+    // Update local state immediately for better UX
+    const updatedOrders = calculateQueueTimes(newWorkOrders);
+    setWorkOrders(updatedOrders);
+    
+    // Send to backend
+    reorderWorkOrders(newWorkOrders);
+    
+    setDragOverIndex(null);
   };
 
   const getPriorityColor = (priority) => {
@@ -118,6 +231,15 @@ const App = () => {
       case 'medium': return 'border-yellow-400 bg-yellow-500/20 text-yellow-300';
       case 'low': return 'border-green-400 bg-green-500/20 text-green-300';
       default: return 'border-gray-400 bg-gray-500/20 text-gray-300';
+    }
+  };
+
+  const getPriorityIcon = (priority) => {
+    switch (priority.toLowerCase()) {
+      case 'high': return '🔥';
+      case 'medium': return '⚡';
+      case 'low': return '📋';
+      default: return '📋';
     }
   };
 
@@ -163,16 +285,35 @@ const App = () => {
       <div className="bg-slate-800/50 backdrop-blur-sm rounded-lg border border-slate-600 p-4">
         <div className="flex items-center justify-between">
           <div className="flex items-center space-x-4">
-            <h3 className="text-lg font-semibold text-white">Database Connection</h3>
+            <h3 className="text-lg font-semibold text-white">Queue Management</h3>
             <div className="flex items-center space-x-2">
               <div className="w-2 h-2 bg-green-400 rounded-full animate-pulse"></div>
-              <span className="text-green-400 text-sm">Connected</span>
+              <span className="text-green-400 text-sm">Database Connected</span>
             </div>
           </div>
           <div className="flex items-center space-x-4">
             <div className="text-slate-300 text-sm">
-              Last Refresh: {formatTime(lastRefresh)}
+              Last Update: {formatTime(lastRefresh)}
             </div>
+            <button
+              onClick={sortByPriority}
+              disabled={isLoading}
+              className="bg-blue-500 hover:bg-blue-600 disabled:bg-blue-700 disabled:opacity-50 text-white px-4 py-2 rounded font-semibold transition-colors flex items-center space-x-2"
+            >
+              {isLoading ? (
+                <>
+                  <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin"></div>
+                  <span>Sorting...</span>
+                </>
+              ) : (
+                <>
+                  <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 4h13M3 8h9m-9 4h6m4 0l4-4m0 0l4 4m-4-4v12" />
+                  </svg>
+                  <span>Priority Sort</span>
+                </>
+              )}
+            </button>
             <button
               onClick={refreshData}
               disabled={isLoading}
@@ -199,6 +340,9 @@ const App = () => {
             {error}
           </div>
         )}
+        <div className="mt-2 text-slate-400 text-sm">
+          💡 <strong>Tip:</strong> Drag and drop work orders to reorder the queue, or use Priority Sort for automatic ordering
+        </div>
       </div>
     );
   };
@@ -219,6 +363,11 @@ const App = () => {
           <div className="text-sm text-slate-300">
             Total Duration: {formatDuration(totalMinutes)}
           </div>
+          {isDragging && (
+            <div className="text-sm text-yellow-400 animate-pulse">
+              🔄 Reordering queue...
+            </div>
+          )}
         </div>
         <div className="text-lg font-bold text-yellow-400">
           Current Time: {formatTime(currentTime)}
@@ -255,7 +404,7 @@ const App = () => {
       <div className="bg-slate-800/50 backdrop-blur-sm rounded-lg border border-slate-600 p-4">
         <TimelineHeader />
         
-        {/* GANTT Chart with Scrolling */}
+        {/* GANTT Chart with Drag & Drop */}
         <div className="overflow-auto max-h-96 scrollbar-custom">
           <div className="min-w-full">
             <div className="grid gap-2 min-w-max">
@@ -265,32 +414,64 @@ const App = () => {
                 const width = (orderDuration / totalDuration) * 100;
                 const progress = getCurrentProgress(order);
 
+                const isDropTarget = dragOverIndex === index;
+                const isDraggedItem = draggedOrder?.index === index;
+
                 return (
-                  <div key={order.id} className="flex items-center gap-3 h-14 min-w-max">
-                    {/* Work Order Info - Fixed width */}
-                    <div className="w-64 flex-shrink-0">
-                      <div className="bg-slate-700/80 backdrop-blur-sm rounded border border-slate-600 p-3 h-full flex items-center">
+                  <div 
+                    key={order.id} 
+                    className={`flex items-center gap-3 h-16 min-w-max transition-all duration-200 ${
+                      isDropTarget ? 'bg-yellow-500/10 border-yellow-400 border-2 border-dashed rounded' : ''
+                    } ${isDraggedItem ? 'opacity-50 scale-95' : ''}`}
+                    draggable
+                    onDragStart={(e) => handleDragStart(e, order, index)}
+                    onDragEnd={handleDragEnd}
+                    onDragOver={(e) => handleDragOver(e, index)}
+                    onDragLeave={handleDragLeave}
+                    onDrop={(e) => handleDrop(e, index)}
+                  >
+                    {/* Drag Handle & Work Order Info */}
+                    <div className="w-72 flex-shrink-0">
+                      <div className="bg-slate-700/80 backdrop-blur-sm rounded border border-slate-600 p-3 h-full flex items-center cursor-move hover:bg-slate-600/80 transition-colors">
                         <div className="flex items-center justify-between w-full">
-                          <div className="flex-1 min-w-0">
-                            <div className="text-white font-medium text-sm truncate">{order.id}</div>
-                            <div className="text-slate-300 text-xs truncate">{order.name}</div>
-                            <div className="text-slate-400 text-xs">{order.productType}</div>
+                          <div className="flex items-center space-x-3">
+                            {/* Drag Handle */}
+                            <div className="text-slate-400 hover:text-yellow-400 transition-colors">
+                              <svg className="w-5 h-5" fill="currentColor" viewBox="0 0 20 20">
+                                <path d="M7 2a2 2 0 00-2 2v12a2 2 0 002 2h6a2 2 0 002-2V4a2 2 0 00-2-2H7zM8 6a1 1 0 011-1h2a1 1 0 110 2H9a1 1 0 01-1-1zm1 3a1 1 0 100 2h2a1 1 0 100-2H9zm0 4a1 1 0 100 2h2a1 1 0 100-2H9z" />
+                              </svg>
+                            </div>
+                            
+                            <div className="flex-1 min-w-0">
+                              <div className="flex items-center space-x-2">
+                                <span className="text-lg">{getPriorityIcon(order.priority)}</span>
+                                <div className="text-white font-medium text-sm truncate">{order.id}</div>
+                              </div>
+                              <div className="text-slate-300 text-xs truncate">{order.name}</div>
+                              <div className="text-slate-400 text-xs">{order.productType}</div>
+                            </div>
                           </div>
-                          <div className={`px-2 py-1 rounded text-xs font-semibold border ${getPriorityColor(order.priority)} ml-2`}>
-                            {order.priority[0]}
+                          
+                          <div className="flex items-center space-x-2">
+                            <div className={`px-2 py-1 rounded text-xs font-semibold border ${getPriorityColor(order.priority)}`}>
+                              {order.priority}
+                            </div>
+                            <div className="bg-slate-600 text-slate-300 px-2 py-1 rounded text-xs font-bold">
+                              #{order.queuePosition}
+                            </div>
                           </div>
                         </div>
                       </div>
                     </div>
 
-                    {/* Timeline Bar - Scrollable */}
-                    <div className="flex-1 relative h-10 bg-slate-700/50 rounded border border-slate-600 min-w-96">
+                    {/* Timeline Bar */}
+                    <div className="flex-1 relative h-12 bg-slate-700/50 rounded border border-slate-600 min-w-96">
                       <div 
                         className={`absolute h-full rounded ${getStatusColor(order.status)} flex items-center justify-center text-slate-900 text-xs font-bold transition-all duration-1000 shadow-lg`}
                         style={{
                           left: `${startOffset}%`,
                           width: `${width}%`,
-                          minWidth: '60px'
+                          minWidth: '80px'
                         }}
                       >
                         {order.status === 'In Progress' && (
@@ -305,16 +486,10 @@ const App = () => {
                     </div>
 
                     {/* Time Display */}
-                    <div className="w-32 text-right text-xs text-slate-300 flex-shrink-0">
-                      <div>{formatTime(order.startTime)}</div>
+                    <div className="w-36 text-right text-xs text-slate-300 flex-shrink-0">
+                      <div className="font-semibold">{formatTime(order.startTime)}</div>
                       <div className="text-slate-400">to {formatTime(order.endTime)}</div>
-                    </div>
-
-                    {/* Position */}
-                    <div className="w-16 text-center flex-shrink-0">
-                      <div className="bg-yellow-500/20 border border-yellow-400 text-yellow-300 px-2 py-1 rounded text-xs font-bold">
-                        #{order.position}
-                      </div>
+                      <div className="text-yellow-400 font-bold">{formatDuration(order.processTime)}</div>
                     </div>
                   </div>
                 );
@@ -402,8 +577,8 @@ const App = () => {
       <div className="max-w-7xl mx-auto h-full flex flex-col">
         {/* Header */}
         <div className="text-center mb-4">
-          <h1 className="text-3xl font-bold text-white mb-1">Production Queue Dashboard</h1>
-          <p className="text-slate-300">Real-time SQL Database Integration</p>
+          <h1 className="text-3xl font-bold text-white mb-1">Interactive Production Queue</h1>
+          <p className="text-slate-300">Drag & Drop Queue Management with Priority Sorting</p>
         </div>
 
         {/* Database Status Section */}

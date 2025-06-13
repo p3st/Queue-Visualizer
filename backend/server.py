@@ -97,22 +97,16 @@ async def root():
 
 @app.get("/api/work-orders")
 async def get_work_orders():
-    """Get all work orders from the database ordered by priority and position"""
+    """Get all work orders from the database ordered by position (user-defined order preserved)"""
     try:
         conn = sqlite3.connect(DATABASE_PATH)
         cursor = conn.cursor()
         
+        # Order by position to preserve user-defined order
         cursor.execute("""
             SELECT id, name, priority, product_type, position, created_at, updated_at
             FROM work_orders
-            ORDER BY 
-                CASE priority 
-                    WHEN 'High' THEN 1 
-                    WHEN 'Medium' THEN 2 
-                    WHEN 'Low' THEN 3 
-                    ELSE 4 
-                END,
-                position ASC
+            ORDER BY position ASC
         """)
         
         rows = cursor.fetchall()
@@ -137,7 +131,7 @@ async def get_work_orders():
 
 @app.post("/api/work-orders/reorder")
 async def reorder_work_orders(reorder_data: WorkOrderReorder):
-    """Reorder work orders based on drag and drop"""
+    """Reorder work orders based on drag and drop - preserves user-defined order"""
     try:
         conn = sqlite3.connect(DATABASE_PATH)
         cursor = conn.cursor()
@@ -161,14 +155,15 @@ async def reorder_work_orders(reorder_data: WorkOrderReorder):
 
 @app.post("/api/work-orders/refresh")
 async def refresh_work_orders():
-    """Refresh/reload work orders from database"""
+    """Refresh/reload work orders from database - PRESERVES user-defined order"""
     try:
-        # This endpoint can be used to trigger database refresh
-        # In a real production environment, this might sync with external systems
+        # This endpoint refreshes data but maintains user-defined positions
+        # In real production, this would sync with external systems while preserving manual adjustments
         conn = sqlite3.connect(DATABASE_PATH)
         cursor = conn.cursor()
         
         # Update the updated_at timestamp for all orders to simulate fresh data
+        # But DO NOT change positions - preserve user-defined order
         cursor.execute("""
             UPDATE work_orders 
             SET updated_at = CURRENT_TIMESTAMP
@@ -177,7 +172,7 @@ async def refresh_work_orders():
         conn.commit()
         conn.close()
         
-        # Return fresh data
+        # Return fresh data with preserved positions
         return await get_work_orders()
         
     except Exception as e:
@@ -185,7 +180,7 @@ async def refresh_work_orders():
 
 @app.post("/api/work-orders/priority-sort")
 async def sort_by_priority():
-    """Sort work orders by priority (High -> Medium -> Low)"""
+    """Sort work orders by priority (High -> Medium -> Low) - ONLY when explicitly requested"""
     try:
         conn = sqlite3.connect(DATABASE_PATH)
         cursor = conn.cursor()
@@ -225,30 +220,30 @@ async def sort_by_priority():
 
 @app.get("/api/product-times")
 async def get_product_times():
-    """Get product processing times configuration"""
-    # Updated with much bigger differences in process times
+    """Get product processing times configuration - European production times (20min to 2hrs)"""
+    # Realistic European production times: 20 minutes to 2 hours
     product_times = {
-        "HydraulicPump": 480,      # 8 hours - Complex hydraulic system
-        "EngineBlock": 720,        # 12 hours - Heavy machining
-        "TransmissionCase": 360,   # 6 hours - Precision assembly
-        "BrakeDisc": 90,           # 1.5 hours - Simple turning
-        "CylinderHead": 540,       # 9 hours - Precision machining
-        "FuelInjection": 180,      # 3 hours - Fine tuning
-        "Axle": 240,               # 4 hours - Heavy assembly
-        "Clutch": 120,             # 2 hours - Standard replacement
-        "Turbocharger": 600,       # 10 hours - Complex rebuild
-        "Radiator": 150,           # 2.5 hours - Repair work
-        "Exhaust": 60,             # 1 hour - Welding work
-        "SteeringGear": 300,       # 5 hours - Precision adjustment
-        "Differential": 420,       # 7 hours - Complex assembly
-        "Suspension": 180,         # 3 hours - Component replacement
-        "Electrical": 240,         # 4 hours - Wiring and testing
-        "CoolingSystem": 210,      # 3.5 hours - System integration
-        "OilPump": 270,            # 4.5 hours - Pump rebuild
-        "ValveTrain": 390,         # 6.5 hours - Precision timing
-        "IntakeManifold": 165,     # 2.75 hours - Manifold work
-        "Carburetor": 195,         # 3.25 hours - Rebuild process
-        "Default": 240             # 4 hours - Default time
+        "HydraulicPump": 105,      # 1h 45min - Complex hydraulic system
+        "EngineBlock": 120,        # 2h - Heavy machining
+        "TransmissionCase": 90,    # 1h 30min - Precision assembly
+        "BrakeDisc": 25,           # 25min - Simple turning
+        "CylinderHead": 110,       # 1h 50min - Precision machining
+        "FuelInjection": 45,       # 45min - Fine tuning
+        "Axle": 75,                # 1h 15min - Heavy assembly
+        "Clutch": 35,              # 35min - Standard replacement
+        "Turbocharger": 95,        # 1h 35min - Complex rebuild
+        "Radiator": 40,            # 40min - Repair work
+        "Exhaust": 20,             # 20min - Welding work
+        "SteeringGear": 80,        # 1h 20min - Precision adjustment
+        "Differential": 85,        # 1h 25min - Complex assembly
+        "Suspension": 50,          # 50min - Component replacement
+        "Electrical": 60,          # 1h - Wiring and testing
+        "CoolingSystem": 55,       # 55min - System integration
+        "OilPump": 70,             # 1h 10min - Pump rebuild
+        "ValveTrain": 100,         # 1h 40min - Precision timing
+        "IntakeManifold": 45,      # 45min - Manifold work
+        "Carburetor": 65,          # 1h 5min - Rebuild process
+        "Default": 60              # 1h - Default time
     }
     
     return {"product_times": product_times}

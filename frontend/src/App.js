@@ -64,7 +64,7 @@ const App = () => {
       console.error('Error loading product times:', err);
       // Use default times if API fails
       setProductTimeConfig({
-        'Default': 240
+        'Default': 60
       });
     }
   };
@@ -151,20 +151,81 @@ const App = () => {
     }
   };
 
+  // European production queue logic with overnight shift handling
   const calculateQueueTimes = (orders) => {
     let cumulativeTime = new Date();
     
+    // Start at 06:00 if current time is before 06:00 or after 23:30
+    const currentHour = cumulativeTime.getHours();
+    const currentMinute = cumulativeTime.getMinutes();
+    
+    if (currentHour < 6 || (currentHour === 23 && currentMinute >= 30) || currentHour >= 24) {
+      // Set to 06:00 today or tomorrow
+      const startDate = new Date(cumulativeTime);
+      if (currentHour < 6) {
+        // Same day at 06:00
+        startDate.setHours(6, 0, 0, 0);
+      } else {
+        // Next day at 06:00
+        startDate.setDate(startDate.getDate() + 1);
+        startDate.setHours(6, 0, 0, 0);
+      }
+      cumulativeTime = startDate;
+    }
+    
     return orders.map((order, index) => {
-      const processTime = productTimeConfig[order.productType] || productTimeConfig['Default'] || 240;
+      const processTime = productTimeConfig[order.productType] || productTimeConfig['Default'] || 60;
       const startTime = new Date(cumulativeTime);
-      const endTime = new Date(cumulativeTime.getTime() + processTime * 60000);
+      let endTime = new Date(cumulativeTime.getTime() + processTime * 60000);
       
-      cumulativeTime = endTime;
+      // Check if end time goes past 23:30 - if so, continue next day at 06:00
+      const endHour = endTime.getHours();
+      const endMinute = endTime.getMinutes();
+      
+      if (endHour >= 23 && endMinute >= 30) {
+        // Calculate remaining time after 23:30
+        const todayEnd = new Date(startTime);
+        todayEnd.setHours(23, 30, 0, 0);
+        
+        if (startTime < todayEnd) {
+          // Part of the work happens today, part tomorrow
+          const todayWorkTime = (todayEnd - startTime) / (1000 * 60); // minutes
+          const remainingTime = processTime - todayWorkTime;
+          
+          // End time is tomorrow at 06:00 + remaining time
+          endTime = new Date(startTime);
+          endTime.setDate(endTime.getDate() + 1);
+          endTime.setHours(6, 0, 0, 0);
+          endTime = new Date(endTime.getTime() + remainingTime * 60000);
+        } else {
+          // Work starts after 23:30, move to next day
+          const nextDayStart = new Date(startTime);
+          nextDayStart.setDate(nextDayStart.getDate() + 1);
+          nextDayStart.setHours(6, 0, 0, 0);
+          
+          const newStartTime = nextDayStart;
+          endTime = new Date(newStartTime.getTime() + processTime * 60000);
+          cumulativeTime = newStartTime;
+        }
+      }
+      
+      // Next order starts when current one ends, but check shift rules
+      const nextStartTime = new Date(endTime);
+      const nextHour = nextStartTime.getHours();
+      const nextMinute = nextStartTime.getMinutes();
+      
+      if (nextHour >= 23 && nextMinute >= 30) {
+        // Next order must start tomorrow at 06:00
+        nextStartTime.setDate(nextStartTime.getDate() + 1);
+        nextStartTime.setHours(6, 0, 0, 0);
+      }
+      
+      cumulativeTime = nextStartTime;
       
       return {
         ...order,
         processTime,
-        startTime,
+        startTime: new Date(cumulativeTime.getTime() - processTime * 60000), // Adjust start time based on end calculation
         endTime,
         status: index === 0 ? 'In Progress' : 'Queued',
         queuePosition: index + 1
@@ -252,12 +313,25 @@ const App = () => {
     }
   };
 
+  // European 24H time format
   const formatTime = (date) => {
-    return date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+    return date.toLocaleTimeString('en-GB', { 
+      hour: '2-digit', 
+      minute: '2-digit',
+      hour12: false 
+    });
   };
 
   const formatDate = (date) => {
-    return date.toLocaleDateString();
+    return date.toLocaleDateString('en-GB', {
+      day: '2-digit',
+      month: '2-digit',
+      year: 'numeric'
+    });
+  };
+
+  const formatDateTime = (date) => {
+    return `${formatDate(date)} ${formatTime(date)}`;
   };
 
   const formatDuration = (minutes) => {
@@ -341,7 +415,7 @@ const App = () => {
           </div>
         )}
         <div className="mt-2 text-slate-400 text-sm">
-          💡 <strong>Tip:</strong> Drag and drop work orders to reorder the queue, or use Priority Sort for automatic ordering
+          💡 <strong>Tip:</strong> Drag orders to reorder queue. Work stops at 23:30, resumes 06:00 next day. Refresh preserves your custom order.
         </div>
       </div>
     );
@@ -361,7 +435,10 @@ const App = () => {
             Production Timeline: {formatDate(startTime)}
           </div>
           <div className="text-sm text-slate-300">
-            Total Duration: {formatDuration(totalMinutes)}
+            Queue Duration: {formatDuration(totalMinutes)}
+          </div>
+          <div className="text-sm text-blue-400">
+            Shift: 06:00 - 23:30
           </div>
           {isDragging && (
             <div className="text-sm text-yellow-400 animate-pulse">
@@ -370,7 +447,7 @@ const App = () => {
           )}
         </div>
         <div className="text-lg font-bold text-yellow-400">
-          Current Time: {formatTime(currentTime)}
+          Current: {formatTime(currentTime)}
         </div>
       </div>
     );
@@ -404,14 +481,14 @@ const App = () => {
       <div className="bg-slate-800/50 backdrop-blur-sm rounded-lg border border-slate-600 p-4">
         <TimelineHeader />
         
-        {/* GANTT Chart with Drag & Drop */}
-        <div className="overflow-auto max-h-96 scrollbar-custom">
-          <div className="min-w-full">
-            <div className="grid gap-2 min-w-max">
+        {/* GANTT Chart with Enhanced Horizontal Scrolling */}
+        <div className="overflow-auto max-h-96 scrollbar-custom horizontal-scroll-container">
+          <div className="min-w-max" style={{ minWidth: '1200px' }}>
+            <div className="grid gap-2">
               {workOrders.map((order, index) => {
                 const orderDuration = order.endTime - order.startTime;
                 const startOffset = ((order.startTime - startTime) / totalDuration) * 100;
-                const width = (orderDuration / totalDuration) * 100;
+                const width = Math.max(8, (orderDuration / totalDuration) * 100); // Minimum 8% width for visibility
                 const progress = getCurrentProgress(order);
 
                 const isDropTarget = dragOverIndex === index;
@@ -430,8 +507,8 @@ const App = () => {
                     onDragLeave={handleDragLeave}
                     onDrop={(e) => handleDrop(e, index)}
                   >
-                    {/* Drag Handle & Work Order Info */}
-                    <div className="w-72 flex-shrink-0">
+                    {/* Work Order Info - Fixed width */}
+                    <div className="w-80 flex-shrink-0">
                       <div className="bg-slate-700/80 backdrop-blur-sm rounded border border-slate-600 p-3 h-full flex items-center cursor-move hover:bg-slate-600/80 transition-colors">
                         <div className="flex items-center justify-between w-full">
                           <div className="flex items-center space-x-3">
@@ -464,14 +541,14 @@ const App = () => {
                       </div>
                     </div>
 
-                    {/* Timeline Bar */}
-                    <div className="flex-1 relative h-12 bg-slate-700/50 rounded border border-slate-600 min-w-96">
+                    {/* Timeline Bar - Horizontally Scrollable */}
+                    <div className="flex-1 relative h-12 bg-slate-700/50 rounded border border-slate-600" style={{ minWidth: '800px' }}>
                       <div 
                         className={`absolute h-full rounded ${getStatusColor(order.status)} flex items-center justify-center text-slate-900 text-xs font-bold transition-all duration-1000 shadow-lg`}
                         style={{
                           left: `${startOffset}%`,
                           width: `${width}%`,
-                          minWidth: '80px'
+                          minWidth: '100px'
                         }}
                       >
                         {order.status === 'In Progress' && (
@@ -485,11 +562,14 @@ const App = () => {
                       </div>
                     </div>
 
-                    {/* Time Display */}
-                    <div className="w-36 text-right text-xs text-slate-300 flex-shrink-0">
+                    {/* Time Display - European Format */}
+                    <div className="w-44 text-right text-xs text-slate-300 flex-shrink-0">
                       <div className="font-semibold">{formatTime(order.startTime)}</div>
-                      <div className="text-slate-400">to {formatTime(order.endTime)}</div>
+                      <div className="text-slate-400">{formatTime(order.endTime)}</div>
                       <div className="text-yellow-400 font-bold">{formatDuration(order.processTime)}</div>
+                      {order.startTime.getDate() !== order.endTime.getDate() && (
+                        <div className="text-orange-400 text-xs">Next Day</div>
+                      )}
                     </div>
                   </div>
                 );
@@ -521,7 +601,7 @@ const App = () => {
     
     return (
       <div className="bg-slate-800/50 backdrop-blur-sm rounded-lg border border-slate-600 p-4">
-        <h3 className="text-lg font-semibold text-white mb-3">Process Times by Product Type</h3>
+        <h3 className="text-lg font-semibold text-white mb-3">European Production Times (20min - 2hrs)</h3>
         <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-6 gap-3 max-h-32 overflow-y-auto scrollbar-custom">
           {Object.entries(productTimeConfig)
             .filter(([product]) => product !== 'Default')
@@ -545,9 +625,14 @@ const App = () => {
     const queued = workOrders.filter(o => o.status === 'Queued').length;
     const highPriority = workOrders.filter(o => o.priority === 'High').length;
     const totalTime = workOrders.reduce((sum, order) => sum + order.processTime, 0);
+    
+    // Calculate overnight spans
+    const overnightOrders = workOrders.filter(order => 
+      order.startTime.getDate() !== order.endTime.getDate()
+    ).length;
 
     return (
-      <div className="grid grid-cols-5 gap-4 mb-4">
+      <div className="grid grid-cols-6 gap-4 mb-4">
         <div className="bg-slate-800/60 backdrop-blur-sm border border-slate-600 text-white p-4 rounded-lg text-center">
           <div className="text-2xl font-bold text-yellow-400">{totalOrders}</div>
           <div className="text-sm text-slate-300">Total Orders</div>
@@ -568,17 +653,21 @@ const App = () => {
           <div className="text-2xl font-bold text-purple-400">{formatDuration(totalTime)}</div>
           <div className="text-sm text-slate-300">Total Time</div>
         </div>
+        <div className="bg-slate-800/60 backdrop-blur-sm border border-slate-600 text-white p-4 rounded-lg text-center">
+          <div className="text-2xl font-bold text-orange-400">{overnightOrders}</div>
+          <div className="text-sm text-slate-300">Overnight</div>
+        </div>
       </div>
     );
   };
 
   return (
     <div className="min-h-screen bg-gradient-to-br from-slate-900 via-blue-900 to-slate-900 p-4">
-      <div className="max-w-7xl mx-auto h-full flex flex-col">
+      <div className="max-w-full mx-auto h-full flex flex-col">
         {/* Header */}
         <div className="text-center mb-4">
-          <h1 className="text-3xl font-bold text-white mb-1">Interactive Production Queue</h1>
-          <p className="text-slate-300">Drag & Drop Queue Management with Priority Sorting</p>
+          <h1 className="text-3xl font-bold text-white mb-1">European Production Queue</h1>
+          <p className="text-slate-300">24H Format • Shift Hours: 06:00-23:30 • Drag & Drop Queue Management</p>
         </div>
 
         {/* Database Status Section */}
